@@ -1,14 +1,9 @@
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify
 from flask_cors import CORS
-
 import requests
 import base64
 import json
 import os
-
-# ===== Aadhaar Encryption (pycryptodome) =====
-from Crypto.Cipher import AES
-from Crypto.Util.Padding import pad
 
 # ===== UMANG Encryption (cryptography) =====
 from cryptography.hazmat.primitives import serialization, hashes
@@ -18,37 +13,6 @@ from cryptography.hazmat.primitives import padding as sym
 
 app = Flask(__name__)
 CORS(app)
-
-# ===================== CONFIG: Aadhaar -> Ration =====================
-AES_KEY = bytes.fromhex("64ca098b0a8481987615e69b0f8d43ef")
-AES_IV  = bytes.fromhex("6e696340696d70647323646564757030")
-API_KEY = "1a7a78f970a7a6d0a5042aebc0fbf4a67c999a87c9fde871b17017c82b477396"
-RATION_API_URL = "https://meraration.nic.in/onorc/v1/verifyAadharNumber"
-
-RATION_HEADERS = {
-    "User-Agent": "Dart/3.5 (dart:io)",
-    "Accept": "application/json",
-    "Accept-Encoding": "gzip",
-    "Content-Type": "application/json",
-    "language": "en",
-    "userid": "",
-    "authorization": "Bearer",
-    "key": API_KEY
-}
-
-def encrypt_aadhar(aadhar: str) -> str:
-    cipher = AES.new(AES_KEY, AES.MODE_CBC, AES_IV)
-    ct = cipher.encrypt(pad(aadhar.encode("utf-8"), AES.block_size))
-    return base64.b64encode(base64.b64encode(ct)).decode("utf-8")
-
-def aadhaar_to_ration_number(aadhaar: str) -> str:
-    payload = {"aadharNumber": encrypt_aadhar(aadhaar), "forceUpdate": ""}
-    resp = requests.post(RATION_API_URL, data=json.dumps(payload), headers=RATION_HEADERS, timeout=15)
-    resp.raise_for_status()
-    data = resp.json()
-    if data.get("success") and data.get("data"):
-        return data["data"].get("rationCardNumber")
-    raise ValueError(f"Ration number not found: {data.get('message', 'Unknown')}")
 
 # ===================== CONFIG: UMANG Ration Info =====================
 GATEWAY = "https://apigw.umangapp.in/onorcApi/ws1/getrationcard"
@@ -149,8 +113,7 @@ def home():
     return jsonify({
         "ok": True,
         "routes": {
-            "/ration/<ration_number>": "Ration card info",
-            "/aadhar/<aadhaar_number>": "Aadhaar se Ration card info"
+            "/ration/<ration_number>": "Fetch Ration Card details"
         }
     })
 
@@ -158,18 +121,6 @@ def home():
 def ration_info(number):
     try:
         return jsonify(get_umang_ration_info(number))
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
-
-@app.route("/aadhar/<aadhaar>", methods=["GET"])
-def aadhaar_info(aadhaar):
-    if not aadhaar.isdigit() or len(aadhaar) != 12:
-        return jsonify({"ok": False, "error": "Invalid format"}), 400
-    try:
-        ration_number = aadhaar_to_ration_number(aadhaar)
-        info = get_umang_ration_info(ration_number)
-        if isinstance(info, dict): info["rationCardNumber"] = ration_number
-        return jsonify(info)
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
 
